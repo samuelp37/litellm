@@ -82,7 +82,6 @@ litellm/proxy/db/migrations/*
 litellm/proxy/migrations/*config.yaml
 litellm/proxy/migrations/*
 litellm/proxy/to_delete_loadtest_work/*
-config.yaml
 tests/litellm/litellm_core_utils/llm_cost_calc/log.txt
 tests/test_custom_dir/*
 test.py
@@ -99,3 +98,5 @@ LAZY_LOADING_IMPROVEMENTS.md
 **/playwright-report
 **/*.storageState.json
 **/coverage
+
+.claude/settings.local.json
