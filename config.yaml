@@ -1,0 +1,39 @@
+model_list:
+  - model_name: gpt-5-nano
+    litellm_params:
+      model: azure/gpt-5-nano
+      api_base: os.environ/AZURE_API_BASE
+      api_key: "os.environ/AZURE_API_KEY"
+  - model_name: gpt-5-mini
+    litellm_params:
+      model: azure/gpt-5-mini
+      api_base: os.environ/AZURE_API_BASE
+      api_key: "os.environ/AZURE_API_KEY"
+  - model_name: nova-2-lite
+    litellm_params:
+      model: bedrock/arn:aws:bedrock:eu-central-1:039859107821:inference-profile/eu.amazon.nova-2-lite-v1:0
+      aws_profile_name: os.environ/AWS_PROFILE_NAME
+  - model_name: nova-pro
+    litellm_params:
+      model: bedrock/arn:aws:bedrock:eu-central-1:039859107821:inference-profile/eu.amazon.nova-pro-v1:0
+      aws_profile_name: os.environ/AWS_PROFILE_NAME
+  - model_name: nova-lite
+    litellm_params:
+      model: bedrock/arn:aws:bedrock:eu-central-1:039859107821:inference-profile/eu.amazon.nova-lite-v1:0
+      aws_profile_name: os.environ/AWS_PROFILE_NAME
+  - model_name: nova-micro
+    litellm_params:
+      model: bedrock/arn:aws:bedrock:eu-central-1:039859107821:inference-profile/eu.amazon.nova-micro-v1:0
+      aws_profile_name: os.environ/AWS_PROFILE_NAME
+  - model_name: claude-sonnet
+    litellm_params:
+      model: bedrock/arn:aws:bedrock:eu-central-1:039859107821:inference-profile/eu.anthropic.claude-sonnet-4-5-20250929-v1:0
+      aws_profile_name: os.environ/AWS_PROFILE_NAME
+  - model_name: claude-haiku
+    litellm_params:
+      model: bedrock/arn:aws:bedrock:eu-central-1:039859107821:inference-profile/eu.anthropic.claude-haiku-4-5-20251001-v1:0
+      aws_profile_name: os.environ/AWS_PROFILE_NAME
+  - model_name: qwen-coder
+    litellm_params:
+      model: bedrock/qwen.qwen3-coder-30b-a3b-v1:0
+      aws_profile_name: os.environ/AWS_PROFILE_NAME

@@ -33,6 +33,10 @@
 <img width="2688" height="1600" alt="Group 7154 (1)" src="https://github.com/user-attachments/assets/c5ee0412-6fb5-4fb6-ab5b-bafae4209ca6" />
 
 
+## Documentation of fork adjustments
+
+Some adjustments have been made to the current fork. The corresponding documentation is available in [README.custom.md](./README.custom.md).
+
 ## Use LiteLLM for
 
 <details open>
