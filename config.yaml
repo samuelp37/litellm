@@ -1,9 +1,21 @@
 model_list:
   - model_name: gpt-6-luna
     litellm_params:
-      model: bedrock/arn:aws:bedrock:eu-central-1:os.environ/AWS_ACCOUNT_ID:inference-profile/global.openai.gpt-6-luna
+      model: bedrock/global.openai.gpt-6-luna
+      aws_profile_name: os.environ/AWS_PROFILE_NAME
+  - model_name: gpt-oss-20b
+    litellm_params:
+      model: bedrock/openai.gpt-oss-20b-1:0
+      aws_profile_name: os.environ/AWS_PROFILE_NAME
+  - model_name: gpt-oss-120b
+    litellm_params:
+      model: bedrock/openai.gpt-oss-120b-1:0
+      aws_profile_name: os.environ/AWS_PROFILE_NAME
+  - model_name: haiku-4-5
+    litellm_params:
+      model: bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0
       aws_profile_name: os.environ/AWS_PROFILE_NAME
   - model_name: haiku-5-5
     litellm_params:
-      model: bedrock/arn:aws:bedrock:eu-central-1:os.environ/AWS_ACCOUNT_ID:inference-profile/eu.anthropic.claude-haiku-5-5
+      model: bedrock/eu.anthropic.claude-haiku-5-5
       aws_profile_name: os.environ/AWS_PROFILE_NAME
