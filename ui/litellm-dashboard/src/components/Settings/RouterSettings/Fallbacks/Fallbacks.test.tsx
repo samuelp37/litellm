@@ -1,17 +1,22 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Fallbacks from "./Fallbacks";
 import * as networkingModule from "../../../networking";
-import * as fetchModelsModule from "../../../playground/llm_calls/fetch_models";
+import * as fetchModelsModule from "@/components/llm_calls/fetch_models";
 
 vi.mock("../../../networking", () => ({
   getCallbacksCall: vi.fn(),
   setCallbacksCall: vi.fn(),
 }));
 
-vi.mock("../../../playground/llm_calls/fetch_models", () => ({
+vi.mock("@/components/llm_calls/fetch_models", () => ({
   fetchAvailableModels: vi.fn(),
+}));
+
+vi.mock("@/app/(dashboard)/hooks/models/useModelCostMap", () => ({
+  useModelCostMap: vi.fn().mockReturnValue({ data: null }),
 }));
 
 vi.mock("openai", () => ({
@@ -75,42 +80,26 @@ describe("Fallbacks", () => {
   const mockAccessToken = "test-token";
   const mockUserRole = "Admin";
   const mockUserID = "user-123";
-  const mockModelData = {
-    data: [
-      { model_name: "gpt-4" },
-      { model_name: "gpt-3.5-turbo" },
-      { model_name: "claude-3-opus" },
-    ],
-  };
-
   const mockRouterSettings = {
-    fallbacks: [
-      { "gpt-4": ["gpt-3.5-turbo", "claude-3-opus"] },
-      { "claude-3-opus": ["gpt-4"] },
-    ],
+    fallbacks: [{ "gpt-4": ["gpt-3.5-turbo", "claude-3-opus"] }, { "claude-3-opus": ["gpt-4"] }],
   };
 
   const defaultProps = {
     accessToken: mockAccessToken,
     userRole: mockUserRole,
     userID: mockUserID,
-    modelData: mockModelData,
   };
 
-  const findDeleteButton = (container: HTMLElement) => {
-    const tableRows = container.querySelectorAll("tbody tr");
-    if (tableRows.length === 0) return null;
-    const firstRow = tableRows[0];
-    const actionCells = firstRow.querySelectorAll("td");
-    const lastCell = actionCells[actionCells.length - 1];
-    const buttons = lastCell.querySelectorAll("button");
-    if (buttons.length >= 2) {
-      return buttons[buttons.length - 1];
-    }
-    const clickableElements = lastCell.querySelectorAll("[class*='cursor-pointer'], button");
-    return Array.from(clickableElements).find((el) =>
-      el.className.includes("red") || el.className.includes("hover:text-red")
-    ) || clickableElements[clickableElements.length - 1];
+  const getFirstRowDeleteButton = () => {
+    const deleteButtons = screen.getAllByTestId("delete-fallback-button");
+    return deleteButtons.length > 0 ? deleteButtons[0] : null;
+  };
+
+  const renderWithQueryClient = (ui: React.ReactElement) => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
   };
 
   beforeEach(() => {
@@ -127,7 +116,7 @@ describe("Fallbacks", () => {
   });
 
   it("should render the component", async () => {
-    render(<Fallbacks {...defaultProps} />);
+    renderWithQueryClient(<Fallbacks {...defaultProps} />);
 
     await waitFor(() => {
       expect(screen.getByTestId("add-fallbacks-button")).toBeInTheDocument();
@@ -135,41 +124,66 @@ describe("Fallbacks", () => {
   });
 
   it("should not render when accessToken is null", () => {
-    const { container } = render(<Fallbacks {...defaultProps} accessToken={null} />);
-    expect(container.firstChild).toBeNull();
+    const { container } = renderWithQueryClient(<Fallbacks {...defaultProps} accessToken={null} />);
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("should fetch router settings on mount", async () => {
-    render(<Fallbacks {...defaultProps} />);
+    renderWithQueryClient(<Fallbacks {...defaultProps} />);
 
     await waitFor(() => {
-      expect(networkingModule.getCallbacksCall).toHaveBeenCalledWith(
-        mockAccessToken,
-        mockUserID,
-        mockUserRole,
-      );
+      expect(networkingModule.getCallbacksCall).toHaveBeenCalledWith(mockAccessToken, mockUserID, mockUserRole);
     });
   });
 
   it("should display fallback entries in table", async () => {
-    render(<Fallbacks {...defaultProps} />);
+    renderWithQueryClient(<Fallbacks {...defaultProps} />);
 
     await waitFor(() => {
       expect(screen.getAllByText("gpt-4").length).toBeGreaterThan(0);
-      expect(screen.getByText("gpt-3.5-turbo, claude-3-opus")).toBeInTheDocument();
-      expect(screen.getByText("claude-3-opus")).toBeInTheDocument();
+      expect(screen.getAllByText(/gpt-3\.5-turbo/).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/claude-3-opus/).length).toBeGreaterThan(0);
+    });
+  });
+
+  it("should show delete button for each fallback row when fallbacks exist", async () => {
+    renderWithQueryClient(<Fallbacks {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("gpt-4").length).toBeGreaterThan(0);
+    });
+
+    const deleteButtons = screen.getAllByTestId("delete-fallback-button");
+    expect(deleteButtons.length).toBe(2);
+  });
+
+  it("should show an edit button for each fallback row and open the edit modal", async () => {
+    const user = userEvent.setup();
+    renderWithQueryClient(<Fallbacks {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("gpt-4").length).toBeGreaterThan(0);
+    });
+
+    const editButtons = screen.getAllByTestId("edit-fallback-button");
+    expect(editButtons.length).toBe(2);
+
+    await user.click(editButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText("Configure Model Fallbacks")).toBeInTheDocument();
     });
   });
 
   it("should open delete modal when delete icon is clicked", async () => {
     const user = userEvent.setup();
-    const { container } = render(<Fallbacks {...defaultProps} />);
+    renderWithQueryClient(<Fallbacks {...defaultProps} />);
 
     await waitFor(() => {
       expect(screen.getAllByText("gpt-4").length).toBeGreaterThan(0);
     });
 
-    const deleteButton = findDeleteButton(container);
+    const deleteButton = getFirstRowDeleteButton();
     expect(deleteButton).not.toBeNull();
 
     await user.click(deleteButton as HTMLElement);
@@ -182,13 +196,13 @@ describe("Fallbacks", () => {
 
   it("should delete fallback when confirmed", async () => {
     const user = userEvent.setup();
-    const { container } = render(<Fallbacks {...defaultProps} />);
+    renderWithQueryClient(<Fallbacks {...defaultProps} />);
 
     await waitFor(() => {
       expect(screen.getAllByText("gpt-4").length).toBeGreaterThan(0);
     });
 
-    const deleteButton = findDeleteButton(container);
+    const deleteButton = getFirstRowDeleteButton();
     expect(deleteButton).not.toBeNull();
 
     await user.click(deleteButton as HTMLElement);
@@ -210,13 +224,13 @@ describe("Fallbacks", () => {
 
   it("should close delete modal when cancel is clicked", async () => {
     const user = userEvent.setup();
-    const { container } = render(<Fallbacks {...defaultProps} />);
+    renderWithQueryClient(<Fallbacks {...defaultProps} />);
 
     await waitFor(() => {
       expect(screen.getAllByText("gpt-4").length).toBeGreaterThan(0);
     });
 
-    const deleteButton = findDeleteButton(container);
+    const deleteButton = getFirstRowDeleteButton();
     expect(deleteButton).not.toBeNull();
 
     await user.click(deleteButton as HTMLElement);
@@ -237,13 +251,13 @@ describe("Fallbacks", () => {
     const user = userEvent.setup();
     const error = new Error("Delete failed");
     vi.mocked(networkingModule.setCallbacksCall).mockRejectedValueOnce(error);
-    const { container } = render(<Fallbacks {...defaultProps} />);
+    renderWithQueryClient(<Fallbacks {...defaultProps} />);
 
     await waitFor(() => {
       expect(screen.getAllByText("gpt-4").length).toBeGreaterThan(0);
     });
 
-    const deleteButton = findDeleteButton(container);
+    const deleteButton = getFirstRowDeleteButton();
     expect(deleteButton).not.toBeNull();
 
     await user.click(deleteButton as HTMLElement);
@@ -264,13 +278,13 @@ describe("Fallbacks", () => {
     const user = userEvent.setup();
     const error = new Error("Delete failed");
     vi.mocked(networkingModule.setCallbacksCall).mockRejectedValueOnce(error);
-    const { container } = render(<Fallbacks {...defaultProps} />);
+    renderWithQueryClient(<Fallbacks {...defaultProps} />);
 
     await waitFor(() => {
       expect(screen.getAllByText("gpt-4").length).toBeGreaterThan(0);
     });
 
-    const deleteButton = findDeleteButton(container);
+    const deleteButton = getFirstRowDeleteButton();
     expect(deleteButton).not.toBeNull();
 
     await user.click(deleteButton as HTMLElement);
@@ -292,10 +306,13 @@ describe("Fallbacks", () => {
     vi.mocked(networkingModule.getCallbacksCall).mockResolvedValueOnce({
       router_settings: { fallbacks: [] },
     });
-    render(<Fallbacks {...defaultProps} />);
+    renderWithQueryClient(<Fallbacks {...defaultProps} />);
 
     await waitFor(() => {
       expect(screen.getByTestId("add-fallbacks-button")).toBeInTheDocument();
+      expect(
+        screen.getByText(/No fallbacks configured. Add fallbacks to automatically try another model/),
+      ).toBeInTheDocument();
     });
 
     expect(screen.queryByText("gpt-4")).not.toBeInTheDocument();
@@ -305,10 +322,13 @@ describe("Fallbacks", () => {
     vi.mocked(networkingModule.getCallbacksCall).mockResolvedValueOnce({
       router_settings: {},
     });
-    render(<Fallbacks {...defaultProps} />);
+    renderWithQueryClient(<Fallbacks {...defaultProps} />);
 
     await waitFor(() => {
       expect(screen.getByTestId("add-fallbacks-button")).toBeInTheDocument();
+      expect(
+        screen.getByText(/No fallbacks configured. Add fallbacks to automatically try another model/),
+      ).toBeInTheDocument();
     });
   });
 
@@ -319,7 +339,7 @@ describe("Fallbacks", () => {
         model_group_retry_policy: { some: "policy" },
       },
     });
-    render(<Fallbacks {...defaultProps} />);
+    renderWithQueryClient(<Fallbacks {...defaultProps} />);
 
     await waitFor(() => {
       expect(networkingModule.getCallbacksCall).toHaveBeenCalled();
@@ -328,7 +348,7 @@ describe("Fallbacks", () => {
 
   it("should update fallbacks when AddFallbacks onChange is called", async () => {
     const user = userEvent.setup();
-    render(<Fallbacks {...defaultProps} />);
+    renderWithQueryClient(<Fallbacks {...defaultProps} />);
 
     await waitFor(() => {
       expect(screen.getByTestId("add-fallbacks-button")).toBeInTheDocument();
@@ -349,7 +369,7 @@ describe("Fallbacks", () => {
     vi.mocked(networkingModule.getCallbacksCall).mockResolvedValue({
       router_settings: mockRouterSettings,
     });
-    render(<Fallbacks {...defaultProps} />);
+    renderWithQueryClient(<Fallbacks {...defaultProps} />);
 
     await waitFor(() => {
       expect(screen.getByTestId("add-fallbacks-button")).toBeInTheDocument();

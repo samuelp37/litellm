@@ -1,16 +1,19 @@
 const { VertexAI, RequestOptions } = require('@google-cloud/vertexai');
 
+const masterKey = process.env.LITELLM_MASTER_KEY;
+if (!masterKey) throw new Error("LITELLM_MASTER_KEY must be set");
+
 
 
 const vertexAI = new VertexAI({
-    project: 'pathrise-convert-1606954137718',
-    location: 'us-central1',
+    project: 'litellm-ci-cd',
+    location: 'global',
     apiEndpoint: "127.0.0.1:4000/vertex-ai"
 });
 
 // Create customHeaders using Headers
 const customHeaders = new Headers({
-    "X-Litellm-Api-Key": "sk-1234",
+    "X-Litellm-Api-Key": masterKey,
     tags: "vertexjs,test-2"
 });
 
@@ -20,7 +23,7 @@ const requestOptions = {
 };
 
 const generativeModel = vertexAI.getGenerativeModel(
-    { model: 'gemini-2.5-flash-lite' },
+    { model: 'gemini-3.1-flash-lite' },
     requestOptions
 );
 

@@ -1,6 +1,6 @@
 import type { ProxyModel } from "@/app/(dashboard)/hooks/models/useModels";
 import type { Organization } from "@/components/networking";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "../../../tests/test-utils";
@@ -22,56 +22,6 @@ vi.mock("@/app/(dashboard)/hooks/users/useCurrentUser", () => ({
   useCurrentUser: vi.fn(),
 }));
 
-vi.mock("antd", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("antd")>();
-  return {
-    ...actual,
-    Select: ({
-      value,
-      onChange,
-      options,
-      "data-testid": dataTestId,
-      allowClear,
-      maxTagCount,
-      maxTagPlaceholder,
-      mode,
-      ...props
-    }: any) => {
-      return (
-        <div data-testid={dataTestId || "model-select"}>
-          <select
-            multiple={mode === "multiple"}
-            role="listbox"
-            value={value}
-            onChange={(e) => {
-              const selectedValues = Array.from(e.target.selectedOptions, (option) => option.value);
-              onChange(mode === "multiple" ? selectedValues : selectedValues[0]);
-            }}
-            {...props}
-          >
-            {options?.map((group: any) => (
-              <optgroup
-                key={group.label?.props?.children || group.title}
-                label={group.title || group.label?.props?.children}
-              >
-                {group.options?.map((option: any) => (
-                  <option key={option.value} value={option.value} disabled={option.disabled}>
-                    {typeof option.label === "string" ? option.label : option.label?.props?.children}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </div>
-      );
-    },
-    Skeleton: {
-      Input: ({ active, block }: any) => <div data-testid="skeleton-input" data-active={active} data-block={block} />,
-    },
-    Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  };
-});
-
 import { useAllProxyModels } from "@/app/(dashboard)/hooks/models/useModels";
 import { useOrganization } from "@/app/(dashboard)/hooks/organizations/useOrganizations";
 import { useTeam } from "@/app/(dashboard)/hooks/teams/useTeams";
@@ -81,6 +31,32 @@ const mockUseAllProxyModels = vi.mocked(useAllProxyModels);
 const mockUseTeam = vi.mocked(useTeam);
 const mockUseOrganization = vi.mocked(useOrganization);
 const mockUseCurrentUser = vi.mocked(useCurrentUser);
+
+const createMockOrganization = (models: string[]): Organization => ({
+  organization_id: "org-1",
+  organization_alias: "Test Org",
+  budget_id: "budget-1",
+  metadata: {},
+  models,
+  spend: 0,
+  model_spend: {},
+  created_at: "2024-01-01",
+  created_by: "user-1",
+  updated_at: "2024-01-01",
+  updated_by: "user-1",
+  litellm_budget_table: null,
+  teams: null,
+  users: null,
+  members: null,
+});
+
+const openModelList = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(screen.getAllByRole("combobox")[0]);
+  await screen.findByRole("listbox");
+};
+
+const expectOffered = (label: string) => expect(screen.queryAllByText(label).length).toBeGreaterThan(0);
+const expectNotOffered = (label: string) => expect(screen.queryAllByText(label)).toHaveLength(0);
 
 describe("ModelSelect", () => {
   const mockProxyModels: ProxyModel[] = [
@@ -112,82 +88,79 @@ describe("ModelSelect", () => {
     } as any);
   });
 
-  it("should render", async () => {
+  it("should offer every model and wildcard under its group heading", async () => {
+    const user = userEvent.setup();
     renderWithProviders(
       <ModelSelect onChange={mockOnChange} context="user" options={{ showAllProxyModelsOverride: true }} />,
     );
 
-    await waitFor(() => {
-      expect(screen.getByTestId("model-select")).toBeInTheDocument();
+    await openModelList(user);
+
+    expectOffered("Wildcard Options");
+    expectOffered("gpt-4");
+    expectOffered("claude-3");
+    expectOffered("All Openai models");
+    expectOffered("All Anthropic models");
+  });
+
+  it("should offer nothing to select while any dependency is loading", () => {
+    const { unmount: unmountReady } = renderWithProviders(<ModelSelect onChange={mockOnChange} context="user" />);
+    expect(screen.getAllByRole("combobox")).toHaveLength(1);
+    unmountReady();
+
+    const loadingScenarios = [
+      { hook: mockUseAllProxyModels, context: "user" as const },
+      { hook: mockUseTeam, context: "team" as const, props: { teamID: "team-1" } },
+      { hook: mockUseOrganization, context: "organization" as const, props: { organizationID: "org-1" } },
+      { hook: mockUseCurrentUser, context: "user" as const },
+    ];
+
+    loadingScenarios.forEach(({ hook, context, props = {} }) => {
+      hook.mockReturnValue({
+        data: undefined,
+        isLoading: true,
+      } as any);
+
+      const { unmount } = renderWithProviders(<ModelSelect onChange={mockOnChange} context={context} {...props} />);
+
+      expect(screen.queryAllByRole("combobox")).toHaveLength(0);
+      unmount();
     });
   });
 
-  it("should show skeleton loader when loading", () => {
-    mockUseAllProxyModels.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-    } as any);
+  it("should report the picked model to onChange", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ModelSelect onChange={mockOnChange} context="user" options={{ showAllProxyModelsOverride: true }} />,
+    );
 
-    renderWithProviders(<ModelSelect onChange={mockOnChange} context="user" />);
+    await openModelList(user);
+    await user.click(screen.getAllByText("gpt-4")[0]);
 
-    expect(screen.getByTestId("skeleton-input")).toBeInTheDocument();
-    expect(screen.queryByTestId("model-select")).not.toBeInTheDocument();
+    expect(mockOnChange).toHaveBeenCalledWith(["gpt-4"]);
   });
 
-  it("should show skeleton loader when team is loading", () => {
-    mockUseTeam.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-    } as any);
+  it("should append a second model to the existing selection", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ModelSelect
+        onChange={mockOnChange}
+        value={["gpt-4"]}
+        context="user"
+        options={{ showAllProxyModelsOverride: true }}
+      />,
+    );
 
-    renderWithProviders(<ModelSelect onChange={mockOnChange} context="team" teamID="team-1" />);
+    await openModelList(user);
+    await user.click(screen.getAllByText("claude-3")[0]);
 
-    expect(screen.getByTestId("skeleton-input")).toBeInTheDocument();
+    expect(mockOnChange).toHaveBeenCalledWith(["gpt-4", "claude-3"]);
   });
 
-  it("should show skeleton loader when organization is loading", () => {
+  it("should offer both special options when they are enabled", async () => {
+    const user = userEvent.setup();
     mockUseOrganization.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-    } as any);
-
-    renderWithProviders(<ModelSelect onChange={mockOnChange} context="organization" organizationID="org-1" />);
-
-    expect(screen.getByTestId("skeleton-input")).toBeInTheDocument();
-  });
-
-  it("should show skeleton loader when current user is loading", () => {
-    mockUseCurrentUser.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-    } as any);
-
-    renderWithProviders(<ModelSelect onChange={mockOnChange} context="user" />);
-
-    expect(screen.getByTestId("skeleton-input")).toBeInTheDocument();
-  });
-
-  it("should render special options group", async () => {
-    const mockOrganization: Organization = {
-      organization_id: "org-1",
-      organization_alias: "Test Org",
-      budget_id: "budget-1",
-      metadata: {},
-      models: ["all-proxy-models"],
-      spend: 0,
-      model_spend: {},
-      created_at: "2024-01-01",
-      created_by: "user-1",
-      updated_at: "2024-01-01",
-      updated_by: "user-1",
-      litellm_budget_table: null,
-      teams: null,
-      users: null,
-      members: null,
-    };
-
-    mockUseOrganization.mockReturnValue({
-      data: mockOrganization,
+      data: createMockOrganization(["all-proxy-models"]),
       isLoading: false,
     } as any);
 
@@ -195,246 +168,384 @@ describe("ModelSelect", () => {
       <ModelSelect
         onChange={mockOnChange}
         context="organization"
+        organizationID="org-1"
+        options={{ showAllProxyModelsOverride: true, includeSpecialOptions: true }}
+      />,
+    );
+
+    await openModelList(user);
+
+    expectOffered("Special Options");
+    expectOffered("All Proxy Models");
+    expectOffered("No Default Models");
+  });
+
+  it("should replace an existing selection when a special option is picked", async () => {
+    const user = userEvent.setup();
+
+    renderWithProviders(
+      <ModelSelect
+        onChange={mockOnChange}
+        value={["gpt-4"]}
+        context="user"
+        options={{ showAllProxyModelsOverride: true, includeSpecialOptions: true }}
+      />,
+    );
+
+    await openModelList(user);
+    await user.click(screen.getAllByText("No Default Models")[0]);
+
+    expect(mockOnChange).toHaveBeenCalledWith(["no-default-models"]);
+  });
+
+  it("should filter the offered models by context", async () => {
+    const testCases = [
+      {
+        name: "user context with includeUserModels",
+        context: "user" as const,
+        options: { includeUserModels: true },
+        setup: () => {
+          mockUseCurrentUser.mockReturnValue({
+            data: { models: ["gpt-4"] },
+            isLoading: false,
+          } as any);
+        },
+        expectedVisible: ["gpt-4"],
+        expectedHidden: ["claude-3"],
+      },
+      {
+        name: "user context without includeUserModels",
+        context: "user" as const,
+        options: {},
+        setup: () => {
+          mockUseCurrentUser.mockReturnValue({
+            data: { models: ["gpt-4"] },
+            isLoading: false,
+          } as any);
+        },
+        expectedVisible: [],
+        expectedHidden: ["gpt-4", "claude-3"],
+      },
+      {
+        name: "team context without organization",
+        context: "team" as const,
+        options: {},
+        props: { teamID: "team-1" },
+        setup: () => {
+          mockUseTeam.mockReturnValue({
+            data: { team_id: "team-1", team_alias: "Test Team", models: [] },
+            isLoading: false,
+          } as any);
+          mockUseOrganization.mockReturnValue({
+            data: undefined,
+            isLoading: false,
+          } as any);
+        },
+        expectedVisible: ["gpt-4", "claude-3"],
+        expectedHidden: [],
+      },
+      {
+        name: "team context with organization having all-proxy-models",
+        context: "team" as const,
+        options: {},
+        props: { teamID: "team-1", organizationID: "org-1" },
+        setup: () => {
+          mockUseTeam.mockReturnValue({
+            data: { team_id: "team-1", team_alias: "Test Team", models: [] },
+            isLoading: false,
+          } as any);
+          mockUseOrganization.mockReturnValue({
+            data: createMockOrganization(["all-proxy-models"]),
+            isLoading: false,
+          } as any);
+        },
+        expectedVisible: ["gpt-4", "claude-3"],
+        expectedHidden: [],
+      },
+      {
+        name: "team context with organization filtering models",
+        context: "team" as const,
+        options: {},
+        props: { teamID: "team-1", organizationID: "org-1" },
+        setup: () => {
+          mockUseTeam.mockReturnValue({
+            data: { team_id: "team-1", team_alias: "Test Team", models: [] },
+            isLoading: false,
+          } as any);
+          mockUseOrganization.mockReturnValue({
+            data: createMockOrganization(["gpt-4"]),
+            isLoading: false,
+          } as any);
+        },
+        expectedVisible: ["gpt-4"],
+        expectedHidden: ["claude-3"],
+      },
+      {
+        name: "organization context",
+        context: "organization" as const,
+        options: {},
+        props: { organizationID: "org-1" },
+        setup: () => {
+          mockUseOrganization.mockReturnValue({
+            data: createMockOrganization(["gpt-4"]),
+            isLoading: false,
+          } as any);
+        },
+        expectedVisible: ["gpt-4", "claude-3"],
+        expectedHidden: [],
+      },
+      {
+        name: "global context",
+        context: "global" as const,
+        options: {},
+        setup: () => {},
+        expectedVisible: ["gpt-4", "claude-3"],
+        expectedHidden: [],
+      },
+    ];
+
+    for (const testCase of testCases) {
+      const user = userEvent.setup();
+      testCase.setup();
+      const { unmount } = renderWithProviders(
+        <ModelSelect
+          onChange={mockOnChange}
+          context={testCase.context}
+          options={testCase.options}
+          {...(testCase.props || {})}
+        />,
+      );
+
+      await openModelList(user);
+      testCase.expectedVisible.forEach(expectOffered);
+      testCase.expectedHidden.forEach(expectNotOffered);
+
+      unmount();
+      vi.clearAllMocks();
+      mockUseAllProxyModels.mockReturnValue({
+        data: { data: mockProxyModels },
+        isLoading: false,
+      } as any);
+    }
+  });
+
+  it("should offer All Proxy Models only when the context allows it", async () => {
+    const testCases = [
+      {
+        name: "when showAllProxyModelsOverride is true",
+        context: "user" as const,
+        options: { showAllProxyModelsOverride: true, includeSpecialOptions: true },
+        setup: () => {},
+        shouldShow: true,
+      },
+      {
+        name: "when organization has all-proxy-models",
+        context: "organization" as const,
+        options: { includeSpecialOptions: true },
+        props: { organizationID: "org-1" },
+        setup: () => {
+          mockUseOrganization.mockReturnValue({
+            data: createMockOrganization(["all-proxy-models"]),
+            isLoading: false,
+          } as any);
+        },
+        shouldShow: true,
+      },
+      {
+        name: "when organization has empty models array",
+        context: "organization" as const,
+        options: { includeSpecialOptions: true },
+        props: { organizationID: "org-1" },
+        setup: () => {
+          mockUseOrganization.mockReturnValue({
+            data: createMockOrganization([]),
+            isLoading: false,
+          } as any);
+        },
+        shouldShow: true,
+      },
+      {
+        name: "when context is global",
+        context: "global" as const,
+        options: { includeSpecialOptions: true },
+        setup: () => {},
+        shouldShow: true,
+      },
+      {
+        name: "when organization has specific models",
+        context: "organization" as const,
+        options: { includeSpecialOptions: true },
+        props: { organizationID: "org-1" },
+        setup: () => {
+          mockUseOrganization.mockReturnValue({
+            data: createMockOrganization(["gpt-4"]),
+            isLoading: false,
+          } as any);
+        },
+        shouldShow: false,
+      },
+    ];
+
+    for (const testCase of testCases) {
+      const user = userEvent.setup();
+      testCase.setup();
+      const { unmount } = renderWithProviders(
+        <ModelSelect
+          onChange={mockOnChange}
+          context={testCase.context}
+          options={testCase.options}
+          {...(testCase.props || {})}
+        />,
+      );
+
+      await openModelList(user);
+      if (testCase.shouldShow) {
+        expectOffered("All Proxy Models");
+      } else {
+        expectNotOffered("All Proxy Models");
+        expectOffered("No Default Models");
+      }
+
+      unmount();
+      vi.clearAllMocks();
+      mockUseAllProxyModels.mockReturnValue({
+        data: { data: mockProxyModels },
+        isLoading: false,
+      } as any);
+    }
+  });
+
+  it("should take the org model ceiling from the team when /organization/info is not readable", async () => {
+    const testCases = [
+      {
+        name: "org allows all proxy models",
+        organizationModels: ["all-proxy-models"],
+        shouldShowSentinel: true,
+        offered: ["gpt-4", "claude-3"],
+        notOffered: [] as string[],
+      },
+      {
+        name: "org places no ceiling at all",
+        organizationModels: [],
+        shouldShowSentinel: true,
+        offered: ["gpt-4", "claude-3"],
+        notOffered: [] as string[],
+      },
+      {
+        name: "org restricts the team to one model",
+        organizationModels: ["gpt-4"],
+        shouldShowSentinel: false,
+        offered: ["gpt-4"],
+        notOffered: ["claude-3"],
+      },
+    ];
+
+    for (const testCase of testCases) {
+      const user = userEvent.setup();
+      // A team admin gets a 403 from /organization/info, so the org query never resolves.
+      mockUseOrganization.mockReturnValue({ data: undefined, isLoading: false } as any);
+      mockUseTeam.mockReturnValue({
+        data: { team_id: "team-1", organization_models: testCase.organizationModels },
+        isLoading: false,
+      } as any);
+
+      const { unmount } = renderWithProviders(
+        <ModelSelect
+          onChange={mockOnChange}
+          context="team"
+          teamID="team-1"
+          organizationID="org-1"
+          options={{ includeSpecialOptions: true }}
+        />,
+      );
+
+      await openModelList(user);
+      if (testCase.shouldShowSentinel) {
+        expectOffered("All Proxy Models");
+      } else {
+        expectNotOffered("All Proxy Models");
+      }
+      expectOffered("No Default Models");
+      testCase.offered.forEach(expectOffered);
+      testCase.notOffered.forEach(expectNotOffered);
+
+      unmount();
+    }
+  });
+
+  it("should stay in the loading state while a list-seeded team is still fetching its org ceiling", () => {
+    mockUseOrganization.mockReturnValue({ data: undefined, isLoading: false } as any);
+    mockUseTeam.mockReturnValue({
+      data: { team_id: "team-1", models: [] },
+      isLoading: false,
+      isFetching: true,
+    } as any);
+
+    renderWithProviders(
+      <ModelSelect
+        onChange={mockOnChange}
+        context="team"
+        teamID="team-1"
         organizationID="org-1"
         options={{ includeSpecialOptions: true }}
       />,
     );
 
-    await waitFor(() => {
-      const select = screen.getByTestId("model-select");
-      expect(select).toBeInTheDocument();
-      expect(screen.getByText("All Proxy Models")).toBeInTheDocument();
-      expect(screen.getByText("No Default Models")).toBeInTheDocument();
-    });
+    expect(screen.queryAllByRole("combobox")).toHaveLength(0);
   });
 
-  it("should render wildcard options group", async () => {
-    renderWithProviders(
-      <ModelSelect onChange={mockOnChange} context="user" options={{ showAllProxyModelsOverride: true }} />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("All Openai models")).toBeInTheDocument();
-      expect(screen.getByText("All Anthropic models")).toBeInTheDocument();
-    });
-  });
-
-  it("should render regular models group", async () => {
-    renderWithProviders(
-      <ModelSelect onChange={mockOnChange} context="user" options={{ showAllProxyModelsOverride: true }} />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("gpt-4")).toBeInTheDocument();
-      expect(screen.getByText("claude-3")).toBeInTheDocument();
-    });
-  });
-
-  it("should call onChange when selecting a regular model", async () => {
+  it("should not hold the loading state on a background refetch once the org ceiling is known", async () => {
     const user = userEvent.setup();
-    renderWithProviders(
-      <ModelSelect onChange={mockOnChange} context="user" options={{ showAllProxyModelsOverride: true }} />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId("model-select")).toBeInTheDocument();
-    });
-
-    const select = screen.getByRole("listbox");
-    await user.selectOptions(select, "gpt-4");
-
-    expect(mockOnChange).toHaveBeenCalledWith(["gpt-4"]);
-  });
-
-  it("should call onChange with only last special option when multiple special options are selected", async () => {
-    const user = userEvent.setup();
-    const mockOrganization: Organization = {
-      organization_id: "org-1",
-      organization_alias: "Test Org",
-      budget_id: "budget-1",
-      metadata: {},
-      models: ["all-proxy-models"],
-      spend: 0,
-      model_spend: {},
-      created_at: "2024-01-01",
-      created_by: "user-1",
-      updated_at: "2024-01-01",
-      updated_by: "user-1",
-      litellm_budget_table: null,
-      teams: null,
-      users: null,
-      members: null,
-    };
-
-    mockUseOrganization.mockReturnValue({
-      data: mockOrganization,
+    mockUseOrganization.mockReturnValue({ data: undefined, isLoading: false } as any);
+    mockUseTeam.mockReturnValue({
+      data: { team_id: "team-1", organization_models: ["all-proxy-models"] },
       isLoading: false,
+      isFetching: true,
     } as any);
 
     renderWithProviders(
       <ModelSelect
         onChange={mockOnChange}
-        context="organization"
+        context="team"
+        teamID="team-1"
         organizationID="org-1"
-        options={{ showAllProxyModelsOverride: true, includeSpecialOptions: true }}
+        options={{ includeSpecialOptions: true }}
       />,
     );
 
-    await waitFor(() => {
-      expect(screen.getByTestId("model-select")).toBeInTheDocument();
-    });
-
-    const select = screen.getByRole("listbox");
-    await user.selectOptions(select, ["all-proxy-models", "no-default-models"]);
-
-    expect(mockOnChange).toHaveBeenCalledWith(["no-default-models"]);
+    await openModelList(user);
+    expectOffered("All Proxy Models");
   });
 
-  it("should disable regular models when special option is selected", async () => {
-    renderWithProviders(
-      <ModelSelect
-        onChange={mockOnChange}
-        value={["all-proxy-models"]}
-        context="user"
-        options={{ showAllProxyModelsOverride: true }}
-      />,
-    );
+  it("should offer no models for an org team when neither the team nor the org reports a ceiling", async () => {
+    const testCases = [
+      { name: "/team/info withheld the ceiling", team: { team_id: "team-1", organization_models: null } },
+      { name: "/team/info failed after the list seeded the team", team: { team_id: "team-1", models: [] } },
+    ];
 
-    await waitFor(() => {
-      const gpt4Option = screen.getByRole("option", { name: "gpt-4" });
-      expect(gpt4Option).toBeDisabled();
-    });
-  });
+    for (const testCase of testCases) {
+      const user = userEvent.setup();
+      mockUseOrganization.mockReturnValue({ data: undefined, isLoading: false } as any);
+      mockUseTeam.mockReturnValue({ data: testCase.team, isLoading: false, isFetching: false } as any);
 
-  it("should disable wildcard models when special option is selected", async () => {
-    renderWithProviders(
-      <ModelSelect
-        onChange={mockOnChange}
-        value={["all-proxy-models"]}
-        context="user"
-        options={{ showAllProxyModelsOverride: true }}
-      />,
-    );
+      const { unmount } = renderWithProviders(
+        <ModelSelect
+          onChange={mockOnChange}
+          context="team"
+          teamID="team-1"
+          organizationID="org-1"
+          options={{ includeSpecialOptions: true }}
+        />,
+      );
 
-    await waitFor(() => {
-      const openaiWildcardOption = screen.getByRole("option", { name: "All Openai models" });
-      expect(openaiWildcardOption).toBeDisabled();
-    });
-  });
+      await openModelList(user);
+      expectNotOffered("All Proxy Models");
+      expectOffered("No Default Models");
+      expectNotOffered("gpt-4");
+      expectNotOffered("claude-3");
 
-  it("should disable other special options when one special option is selected", async () => {
-    const mockOrganization: Organization = {
-      organization_id: "org-1",
-      organization_alias: "Test Org",
-      budget_id: "budget-1",
-      metadata: {},
-      models: ["all-proxy-models"],
-      spend: 0,
-      model_spend: {},
-      created_at: "2024-01-01",
-      created_by: "user-1",
-      updated_at: "2024-01-01",
-      updated_by: "user-1",
-      litellm_budget_table: null,
-      teams: null,
-      users: null,
-      members: null,
-    };
-
-    mockUseOrganization.mockReturnValue({
-      data: mockOrganization,
-      isLoading: false,
-    } as any);
-
-    renderWithProviders(
-      <ModelSelect
-        onChange={mockOnChange}
-        value={["all-proxy-models"]}
-        context="organization"
-        organizationID="org-1"
-        options={{ showAllProxyModelsOverride: true, includeSpecialOptions: true }}
-      />,
-    );
-
-    await waitFor(() => {
-      const noDefaultOption = screen.getByRole("option", { name: "No Default Models" });
-      expect(noDefaultOption).toBeDisabled();
-    });
-  });
-
-  it("should filter models when showAllProxyModelsOverride is true", async () => {
-    renderWithProviders(
-      <ModelSelect onChange={mockOnChange} context="user" options={{ showAllProxyModelsOverride: true }} />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("gpt-4")).toBeInTheDocument();
-      expect(screen.getByText("claude-3")).toBeInTheDocument();
-    });
-  });
-
-  it("should filter models when organization has all-proxy-models in models array", async () => {
-    const mockOrganization: Organization = {
-      organization_id: "org-1",
-      organization_alias: "Test Org",
-      budget_id: "budget-1",
-      metadata: {},
-      models: ["all-proxy-models"],
-      spend: 0,
-      model_spend: {},
-      created_at: "2024-01-01",
-      created_by: "user-1",
-      updated_at: "2024-01-01",
-      updated_by: "user-1",
-      litellm_budget_table: null,
-      teams: null,
-      users: null,
-      members: null,
-    };
-
-    mockUseOrganization.mockReturnValue({
-      data: mockOrganization,
-      isLoading: false,
-    } as any);
-
-    renderWithProviders(<ModelSelect onChange={mockOnChange} context="organization" organizationID="org-1" />);
-
-    await waitFor(() => {
-      expect(screen.getByText("gpt-4")).toBeInTheDocument();
-      expect(screen.getByText("claude-3")).toBeInTheDocument();
-    });
-  });
-
-  it("should show all models when organization context is used", async () => {
-    const mockOrganization: Organization = {
-      organization_id: "org-1",
-      organization_alias: "Test Org",
-      budget_id: "budget-1",
-      metadata: {},
-      models: ["gpt-4"],
-      spend: 0,
-      model_spend: {},
-      created_at: "2024-01-01",
-      created_by: "user-1",
-      updated_at: "2024-01-01",
-      updated_by: "user-1",
-      litellm_budget_table: null,
-      teams: null,
-      users: null,
-      members: null,
-    };
-
-    mockUseOrganization.mockReturnValue({
-      data: mockOrganization,
-      isLoading: false,
-    } as any);
-
-    renderWithProviders(<ModelSelect onChange={mockOnChange} context="organization" organizationID="org-1" />);
-
-    await waitFor(() => {
-      expect(screen.getByText("gpt-4")).toBeInTheDocument();
-      expect(screen.getByText("claude-3")).toBeInTheDocument();
-    });
+      unmount();
+    }
   });
 
   it("should use custom dataTestId when provided", async () => {
@@ -447,118 +558,283 @@ describe("ModelSelect", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(screen.getByTestId("custom-test-id")).toBeInTheDocument();
-    });
+    expect(await screen.findByTestId("custom-test-id")).toBeInTheDocument();
   });
 
-  it("should handle multiple model selections", async () => {
+  it("should return all proxy models for team context when organization has empty models array", async () => {
     const user = userEvent.setup();
-    renderWithProviders(
-      <ModelSelect onChange={mockOnChange} context="user" options={{ showAllProxyModelsOverride: true }} />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId("model-select")).toBeInTheDocument();
-    });
-
-    const select = screen.getByRole("listbox");
-    await user.selectOptions(select, "gpt-4");
-    expect(mockOnChange).toHaveBeenCalledWith(["gpt-4"]);
-
-    await user.selectOptions(select, "claude-3");
-    expect(mockOnChange).toHaveBeenCalled();
-    const allCalls = mockOnChange.mock.calls.map((call) => call[0]);
-    expect(allCalls.some((call) => Array.isArray(call) && call.includes("gpt-4"))).toBe(true);
-    expect(allCalls.some((call) => Array.isArray(call) && call.includes("claude-3"))).toBe(true);
-  });
-
-  it("should capitalize provider name in wildcard options", async () => {
-    renderWithProviders(
-      <ModelSelect onChange={mockOnChange} context="user" options={{ showAllProxyModelsOverride: true }} />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("All Openai models")).toBeInTheDocument();
-      expect(screen.getByText("All Anthropic models")).toBeInTheDocument();
-    });
-  });
-
-  it("should deduplicate models with same id", async () => {
-    const duplicateModels: ProxyModel[] = [
-      { id: "gpt-4", object: "model", created: 1234567890, owned_by: "openai" },
-      { id: "gpt-4", object: "model", created: 1234567890, owned_by: "openai" },
-    ];
-
-    mockUseAllProxyModels.mockReturnValue({
-      data: { data: duplicateModels },
-      isLoading: false,
-    } as any);
-
-    renderWithProviders(
-      <ModelSelect onChange={mockOnChange} context="user" options={{ showAllProxyModelsOverride: true }} />,
-    );
-
-    await waitFor(() => {
-      const gpt4Options = screen.getAllByText("gpt-4");
-      expect(gpt4Options.length).toBeGreaterThan(0);
-    });
-  });
-
-  it("should filter models based on user context with includeUserModels option", async () => {
-    mockUseCurrentUser.mockReturnValue({
-      data: { models: ["gpt-4"] },
-      isLoading: false,
-    } as any);
-
-    renderWithProviders(<ModelSelect onChange={mockOnChange} context="user" options={{ includeUserModels: true }} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("gpt-4")).toBeInTheDocument();
-      expect(screen.queryByText("claude-3")).not.toBeInTheDocument();
-    });
-  });
-
-  it("should filter models based on team context", async () => {
-    const mockTeam = {
-      team_id: "team-1",
-      team_alias: "Test Team",
-      models: ["gpt-4"],
-    };
-
-    const mockOrganization: Organization = {
-      organization_id: "org-1",
-      organization_alias: "Test Org",
-      budget_id: "budget-1",
-      metadata: {},
-      models: ["gpt-4"],
-      spend: 0,
-      model_spend: {},
-      created_at: "2024-01-01",
-      created_by: "user-1",
-      updated_at: "2024-01-01",
-      updated_by: "user-1",
-      litellm_budget_table: null,
-      teams: null,
-      users: null,
-      members: null,
-    };
-
     mockUseTeam.mockReturnValue({
-      data: mockTeam,
+      data: { team_id: "team-1", team_alias: "Test Team", models: [] },
       isLoading: false,
     } as any);
 
     mockUseOrganization.mockReturnValue({
-      data: mockOrganization,
+      data: createMockOrganization([]),
       isLoading: false,
     } as any);
 
     renderWithProviders(<ModelSelect onChange={mockOnChange} context="team" teamID="team-1" organizationID="org-1" />);
 
-    await waitFor(() => {
-      expect(screen.getByText("gpt-4")).toBeInTheDocument();
-      expect(screen.queryByText("claude-3")).not.toBeInTheDocument();
-    });
+    await openModelList(user);
+
+    expectOffered("gpt-4");
+    expectOffered("claude-3");
+  });
+
+  it("should not offer a special options group when includeSpecialOptions is omitted", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelect onChange={mockOnChange} context="global" />);
+
+    await openModelList(user);
+
+    expectNotOffered("Special Options");
+    expectNotOffered("All Proxy Models");
+    expectNotOffered("No Default Models");
+    expectOffered("Models");
+  });
+
+  it("should mark models and wildcards unselectable while a special option is selected", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ModelSelect
+        onChange={mockOnChange}
+        value={["all-proxy-models"]}
+        context="user"
+        options={{ showAllProxyModelsOverride: true, includeSpecialOptions: true }}
+      />,
+    );
+
+    await openModelList(user);
+
+    expect(screen.getByRole("option", { name: "gpt-4" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("option", { name: "All Openai models" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("option", { name: "No Default Models" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("option", { name: "All Proxy Models" })).not.toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("should list a duplicated proxy model only once", async () => {
+    const user = userEvent.setup();
+    mockUseAllProxyModels.mockReturnValue({
+      data: {
+        data: [
+          { id: "gpt-4", object: "model", created: 1234567890, owned_by: "openai" },
+          { id: "gpt-4", object: "model", created: 1234567890, owned_by: "openai" },
+        ],
+      },
+      isLoading: false,
+    } as any);
+
+    renderWithProviders(
+      <ModelSelect onChange={mockOnChange} context="user" options={{ showAllProxyModelsOverride: true }} />,
+    );
+
+    await openModelList(user);
+
+    expect(screen.getAllByRole("option", { name: "gpt-4" })).toHaveLength(1);
+  });
+
+  it("should collapse selections past the chip limit into a labelled overflow count", async () => {
+    const manyModels: ProxyModel[] = Array.from({ length: 8 }, (_, i) => ({
+      id: `model-${i}`,
+      object: "model",
+      created: 1234567890,
+      owned_by: "test",
+    }));
+
+    mockUseAllProxyModels.mockReturnValue({
+      data: { data: manyModels },
+      isLoading: false,
+    } as any);
+
+    renderWithProviders(
+      <ModelSelect
+        onChange={mockOnChange}
+        value={manyModels.map((m) => m.id)}
+        context="user"
+        options={{ showAllProxyModelsOverride: true }}
+      />,
+    );
+
+    expect(await screen.findByText("+3 more")).toBeInTheDocument();
+    expect(screen.getByLabelText("model-0")).toBeInTheDocument();
+    expect(screen.getByLabelText("model-4")).toBeInTheDocument();
+    expect(screen.queryByLabelText("model-5")).not.toBeInTheDocument();
+  });
+
+  it("should let a selected model that is no longer offered be found and deselected", async () => {
+    const user = userEvent.setup();
+    const liveModels: ProxyModel[] = Array.from({ length: 6 }, (_, i) => ({
+      id: `model-${i}`,
+      object: "model",
+      created: 1234567890,
+      owned_by: "test",
+    }));
+    mockUseAllProxyModels.mockReturnValue({
+      data: { data: liveModels },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useAllProxyModels>);
+    const liveIds = liveModels.map((m) => m.id);
+
+    renderWithProviders(<ModelSelect onChange={mockOnChange} value={[...liveIds, "retired-model"]} context="global" />);
+
+    await openModelList(user);
+    await user.type(screen.getAllByRole("combobox")[0], "retired");
+    const retired = await screen.findByRole("option", { name: "retired-model" });
+    expect(retired).toHaveAttribute("aria-selected", "true");
+
+    await user.click(retired);
+
+    expect(mockOnChange).toHaveBeenCalledWith(liveIds);
+  });
+
+  it("should list selections that are no longer offered in an Unavailable group ahead of every other group", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ModelSelect
+        onChange={mockOnChange}
+        value={["retired-b", "gpt-4", "retired-a", "retired-c", "retired-d", "retired-e", "retired-f"]}
+        context="user"
+        options={{ showAllProxyModelsOverride: true, includeSpecialOptions: true }}
+      />,
+    );
+
+    await openModelList(user);
+
+    const groups = within(screen.getByRole("listbox")).getAllByRole("group");
+    expect(
+      groups.map((group) =>
+        within(group)
+          .getAllByRole("option")
+          .map((option) => option.textContent),
+      ),
+    ).toEqual([
+      ["retired-b", "retired-a", "retired-c", "retired-d", "retired-e", "retired-f"],
+      ["All Proxy Models", "No Default Models"],
+      ["All Openai models", "All Anthropic models"],
+      ["gpt-4", "claude-3"],
+    ]);
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
+  });
+
+  it("should keep an unavailable selection removable while a special option is selected", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ModelSelect
+        onChange={mockOnChange}
+        value={["all-proxy-models", "retired-model"]}
+        context="user"
+        options={{ showAllProxyModelsOverride: true, includeSpecialOptions: true }}
+      />,
+    );
+
+    await openModelList(user);
+    const retired = screen.getByRole("option", { name: "retired-model" });
+    expect(retired).not.toHaveAttribute("aria-disabled", "true");
+
+    await user.click(retired);
+
+    expect(mockOnChange).toHaveBeenCalledWith(["all-proxy-models"]);
+  });
+
+  it("should not mark selections Unavailable when the model list could not be loaded", async () => {
+    const user = userEvent.setup();
+    mockUseAllProxyModels.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+    } as unknown as ReturnType<typeof useAllProxyModels>);
+
+    renderWithProviders(
+      <ModelSelect
+        onChange={mockOnChange}
+        value={["gpt-4", "claude-3"]}
+        context="global"
+        options={{ includeSpecialOptions: true }}
+      />,
+    );
+
+    await openModelList(user);
+
+    expectOffered("All Proxy Models");
+    expectNotOffered("Unavailable");
+  });
+
+  it("should list selections outside the organization's model ceiling as Unavailable", async () => {
+    const user = userEvent.setup();
+    mockUseOrganization.mockReturnValue({
+      data: createMockOrganization(["other-model"]),
+      isLoading: false,
+    } as unknown as ReturnType<typeof useOrganization>);
+
+    renderWithProviders(
+      <ModelSelect onChange={mockOnChange} value={["gpt-4", "claude-3"]} context="team" organizationID="org-1" />,
+    );
+
+    await openModelList(user);
+    await user.click(screen.getByRole("option", { name: "claude-3" }));
+
+    expect(mockOnChange).toHaveBeenCalledWith(["gpt-4"]);
+  });
+
+  it("should keep the other selections when removing one unavailable model alongside a special option", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ModelSelect
+        onChange={mockOnChange}
+        value={["all-proxy-models", "retired-a", "retired-b"]}
+        context="user"
+        options={{ showAllProxyModelsOverride: true, includeSpecialOptions: true }}
+      />,
+    );
+
+    await openModelList(user);
+    await user.click(screen.getByRole("option", { name: "retired-a" }));
+
+    expect(mockOnChange).toHaveBeenCalledWith(["all-proxy-models", "retired-b"]);
+  });
+
+  it("should not mark team selections Unavailable while the organization's model ceiling is unknown", async () => {
+    const user = userEvent.setup();
+    mockUseOrganization.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+    } as unknown as ReturnType<typeof useOrganization>);
+    mockUseTeam.mockReturnValue({
+      data: { team_id: "team-1", organization_models: null },
+      isLoading: false,
+      isFetching: false,
+    } as unknown as ReturnType<typeof useTeam>);
+
+    renderWithProviders(
+      <ModelSelect
+        onChange={mockOnChange}
+        value={["gpt-4", "claude-3"]}
+        context="team"
+        teamID="team-1"
+        organizationID="org-1"
+        options={{ includeSpecialOptions: true }}
+      />,
+    );
+
+    await openModelList(user);
+
+    expectOffered("No Default Models");
+    expectNotOffered("Unavailable");
+  });
+
+  it("should not show an Unavailable group when every selection is offered", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ModelSelect
+        onChange={mockOnChange}
+        value={["gpt-4", "openai/*"]}
+        context="user"
+        options={{ showAllProxyModelsOverride: true }}
+      />,
+    );
+
+    await openModelList(user);
+
+    expect(screen.getByRole("option", { name: "gpt-4" })).toHaveAttribute("aria-selected", "true");
+    expectNotOffered("Unavailable");
   });
 });

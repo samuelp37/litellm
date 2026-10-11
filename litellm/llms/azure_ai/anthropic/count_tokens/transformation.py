@@ -4,7 +4,7 @@ Azure AI Anthropic CountTokens API transformation logic.
 Extends the base Anthropic CountTokens transformation with Azure authentication.
 """
 
-from typing import Any, Dict, Optional
+from typing import Final
 
 from litellm.constants import ANTHROPIC_TOKEN_COUNTING_BETA_VERSION
 from litellm.llms.anthropic.count_tokens.transformation import (
@@ -25,38 +25,38 @@ class AzureAIAnthropicCountTokensConfig(AnthropicCountTokensConfig):
     def get_required_headers(
         self,
         api_key: str,
-        litellm_params: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, str]:
+        litellm_params: dict[str, object] | None = None,
+    ) -> dict[str, str]:
         """
         Get the required headers for the Azure AI Anthropic CountTokens API.
 
-        Uses Azure authentication (api-key header) instead of Anthropic's x-api-key.
+        Azure AI Anthropic uses Anthropic's native API format, which requires the
+        x-api-key header for authentication (in addition to Azure's api-key header).
 
         Args:
             api_key: The Azure AI API key
             litellm_params: Optional LiteLLM parameters for additional auth config
 
         Returns:
-            Dictionary of required headers with Azure authentication
+            Dictionary of required headers with both x-api-key and Azure authentication
         """
-        # Start with base headers
-        headers = {
+        # Start with base headers including x-api-key for Anthropic API compatibility
+        headers: Final = {
             "Content-Type": "application/json",
             "anthropic-version": "2023-06-01",
             "anthropic-beta": ANTHROPIC_TOKEN_COUNTING_BETA_VERSION,
+            "x-api-key": api_key,  # Azure AI Anthropic requires this header
         }
 
-        # Use Azure authentication
+        # Also set up Azure auth headers for flexibility
         litellm_params = litellm_params or {}
         if "api_key" not in litellm_params:
             litellm_params["api_key"] = api_key
 
-        litellm_params_obj = GenericLiteLLMParams(**litellm_params)
+        litellm_params_obj: Final = GenericLiteLLMParams.model_validate(litellm_params)
 
-        # Get Azure auth headers
-        azure_headers = BaseAzureLLM._base_validate_azure_environment(
-            headers={}, litellm_params=litellm_params_obj
-        )
+        # Get Azure auth headers (api-key or Authorization)
+        azure_headers = BaseAzureLLM.base_validate_azure_environment(headers={}, litellm_params=litellm_params_obj)
 
         # Merge Azure auth headers
         headers.update(azure_headers)
@@ -68,7 +68,7 @@ class AzureAIAnthropicCountTokensConfig(AnthropicCountTokensConfig):
         Get the Azure AI Anthropic CountTokens API endpoint.
 
         Args:
-            api_base: The Azure AI API base URL 
+            api_base: The Azure AI API base URL
                       (e.g., https://my-resource.services.ai.azure.com or
                        https://my-resource.services.ai.azure.com/anthropic)
 

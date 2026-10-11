@@ -1,17 +1,20 @@
 const { GoogleGenerativeAI, ModelParams, RequestOptions } = require("@google/generative-ai");
 
+const masterKey = process.env.LITELLM_MASTER_KEY;
+if (!masterKey) throw new Error("LITELLM_MASTER_KEY must be set");
+
 const modelParams = {
-    model: 'gemini-2.5-flash-lite',
+    model: 'gemini-3.1-flash-lite',
 };
   
 const requestOptions = {
     baseUrl: 'http://127.0.0.1:4000/gemini',
     customHeaders: {
-        "tags": "gemini-js-sdk,gemini-2.5-flash-lite"
+        "tags": "gemini-js-sdk,gemini-3.1-flash-lite"
     }
 };
   
-const genAI = new GoogleGenerativeAI("sk-1234"); // litellm proxy API key
+const genAI = new GoogleGenerativeAI(masterKey);
 const model = genAI.getGenerativeModel(modelParams, requestOptions);
 
 const testPrompt = "Explain how AI works";

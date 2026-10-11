@@ -5,6 +5,7 @@ This test ensures that the proxy starts and serves requests even with a bad lice
 in ci/cd config.yml, we set the license to "bad-license"
 """
 
+import os
 import pytest
 import aiohttp
 from typing import Optional
@@ -23,7 +24,9 @@ async def test_health_and_chat_completion():
         async with session.get("http://0.0.0.0:4000/health/readiness") as response:
             assert response.status == 200
             readiness_response = await response.json()
-            assert readiness_response["status"] == "connected"
+            # Accept both "healthy" (new format) and "connected" (legacy format)
+            # since this test runs against both source builds and packaged installs
+            assert readiness_response["status"] in ("healthy", "connected")
 
         # Test liveness endpoint
         async with session.get("http://0.0.0.0:4000/health/liveness") as response:
@@ -34,7 +37,7 @@ async def test_health_and_chat_completion():
         # Make a chat completion call
         url = "http://0.0.0.0:4000/chat/completions"
         headers = {
-            "Authorization": "Bearer sk-1234",
+            "Authorization": f"Bearer {os.environ['LITELLM_MASTER_KEY']}",
             "Content-Type": "application/json",
         }
         data = {

@@ -10,6 +10,12 @@ Configuration:
 - `policy_attachments`: Define WHERE policies apply (teams, keys, models)
 """
 
+from litellm.types.proxy.policy_engine.pipeline_types import (
+    GuardrailPipeline,
+    PipelineExecutionResult,
+    PipelineStep,
+    PipelineStepResult,
+)
 from litellm.types.proxy.policy_engine.policy_types import (
     Policy,
     PolicyAttachment,
@@ -19,6 +25,8 @@ from litellm.types.proxy.policy_engine.policy_types import (
     PolicyScope,
 )
 from litellm.types.proxy.policy_engine.resolver_types import (
+    AttachmentImpactResponse,
+    PipelineTestRequest,
     PolicyAttachmentCreateRequest,
     PolicyAttachmentDBResponse,
     PolicyAttachmentListResponse,
@@ -30,10 +38,17 @@ from litellm.types.proxy.policy_engine.resolver_types import (
     PolicyListDBResponse,
     PolicyListResponse,
     PolicyMatchContext,
+    PolicyMatchDetail,
+    PolicyResolveRequest,
+    PolicyResolveResponse,
     PolicyScopeResponse,
     PolicySummaryItem,
     PolicyTestResponse,
     PolicyUpdateRequest,
+    PolicyVersionCompareResponse,
+    PolicyVersionCreateRequest,
+    PolicyVersionListResponse,
+    PolicyVersionStatusUpdateRequest,
     ResolvedPolicy,
 )
 from litellm.types.proxy.policy_engine.validation_types import (
@@ -44,35 +59,52 @@ from litellm.types.proxy.policy_engine.validation_types import (
 )
 
 __all__ = [
+    "AttachmentImpactResponse",
+    # Pipeline types
+    "GuardrailPipeline",
+    "PipelineExecutionResult",
+    "PipelineStep",
+    "PipelineStepResult",
+    # Pipeline test types
+    "PipelineTestRequest",
     # Policy types
     "Policy",
-    "PolicyConfig",
-    "PolicyGuardrails",
-    "PolicyScope",
-    "PolicyCondition",
     "PolicyAttachment",
+    "PolicyAttachmentCreateRequest",
+    "PolicyAttachmentDBResponse",
+    "PolicyAttachmentListResponse",
+    "PolicyCondition",
+    # CRUD Request/Response types
+    "PolicyConditionRequest",
+    "PolicyConfig",
+    "PolicyCreateRequest",
+    "PolicyDBResponse",
+    "PolicyGuardrails",
+    # API Response types
+    "PolicyGuardrailsResponse",
+    "PolicyInfoResponse",
+    "PolicyListDBResponse",
+    "PolicyListResponse",
+    # Resolver types
+    "PolicyMatchContext",
+    "PolicyMatchDetail",
+    # Resolve types
+    "PolicyResolveRequest",
+    "PolicyResolveResponse",
+    "PolicyScope",
+    "PolicyScopeResponse",
+    "PolicySummaryItem",
+    "PolicyTestResponse",
+    "PolicyUpdateRequest",
     # Validation types
     "PolicyValidateRequest",
     "PolicyValidationError",
     "PolicyValidationErrorType",
     "PolicyValidationResponse",
-    # Resolver types
-    "PolicyMatchContext",
+    "PolicyVersionCompareResponse",
+    # Policy versioning
+    "PolicyVersionCreateRequest",
+    "PolicyVersionListResponse",
+    "PolicyVersionStatusUpdateRequest",
     "ResolvedPolicy",
-    # API Response types
-    "PolicyGuardrailsResponse",
-    "PolicyInfoResponse",
-    "PolicyListResponse",
-    "PolicyScopeResponse",
-    "PolicySummaryItem",
-    "PolicyTestResponse",
-    # CRUD Request/Response types
-    "PolicyConditionRequest",
-    "PolicyCreateRequest",
-    "PolicyUpdateRequest",
-    "PolicyDBResponse",
-    "PolicyListDBResponse",
-    "PolicyAttachmentCreateRequest",
-    "PolicyAttachmentDBResponse",
-    "PolicyAttachmentListResponse",
 ]
